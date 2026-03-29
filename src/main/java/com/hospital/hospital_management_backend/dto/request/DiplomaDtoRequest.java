@@ -16,7 +16,7 @@ import java.time.LocalDate;
 public record DiplomaDtoRequest(
 
         @NotBlank(message = "Titre should not be blank")
-        String titre,
+        String title,
 
         @Past(message = "Start date should be in the past")
         LocalDate startDate,
