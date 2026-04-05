@@ -1,4 +1,4 @@
-package com.hospital.hospital_management_backend.dto;
+package com.hospital.hospital_management_backend.enums;
 
 import lombok.Getter;
 
