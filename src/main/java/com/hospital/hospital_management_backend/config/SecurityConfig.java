@@ -2,7 +2,7 @@ package com.hospital.hospital_management_backend.config;
 
 import com.hospital.hospital_management_backend.auth.JwtAuthEntryPoint;
 import com.hospital.hospital_management_backend.auth.JwtAuthFilter;
-import com.hospital.hospital_management_backend.dto.ROLES;
+import com.hospital.hospital_management_backend.enums.ROLES;
 import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
 import io.swagger.v3.oas.annotations.security.SecurityScheme;
 import org.springframework.context.annotation.Bean;
@@ -15,7 +15,6 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
