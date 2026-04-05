@@ -15,6 +15,5 @@ public interface UserMapper {
     @Mapping(target = "imageId", source = "image.id")
     UserDtoResponse userToUserDtoResponse(User user);
 
-    @Mapping(target = "image.id", source = "imageId")
     User userDtoRequestToUser(UserDtoRequest userDtoRequest);
 }
