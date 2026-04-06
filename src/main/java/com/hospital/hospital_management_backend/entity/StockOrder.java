@@ -3,6 +3,7 @@ package com.hospital.hospital_management_backend.entity;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 @Entity
 @Table(name = "stock_orders")
@@ -10,7 +11,7 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 public class StockOrder extends Order {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

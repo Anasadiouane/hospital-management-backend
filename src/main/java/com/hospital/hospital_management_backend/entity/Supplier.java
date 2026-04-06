@@ -44,4 +44,9 @@ public class Supplier {
 
     @OneToMany(mappedBy = "supplier", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<StockOrder> stockOrders;
+
+    public Set<StockOrder> getDeliveryNotes() {
+        return stockOrders;
+    }
+
 }

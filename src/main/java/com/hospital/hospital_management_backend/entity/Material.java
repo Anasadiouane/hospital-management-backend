@@ -2,6 +2,7 @@ package com.hospital.hospital_management_backend.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 @Entity
 @Table(name = "materials")
@@ -9,7 +10,7 @@ import lombok.*;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@SuperBuilder
 public class Material extends Product {
 
     @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL)

@@ -35,10 +35,10 @@ public class Location {
     private String address;
 
     @Column(name = "latitude", nullable = false)
-    private Double latitude; // numeric precision
+    private String latitude;
 
     @Column(name = "longitude", nullable = false)
-    private Double longitude; // numeric precision
+    private String longitude;
 
     @OneToMany(mappedBy = "location", fetch = FetchType.LAZY, cascade = CascadeType.REMOVE)
     private Set<Stock> stocks;
