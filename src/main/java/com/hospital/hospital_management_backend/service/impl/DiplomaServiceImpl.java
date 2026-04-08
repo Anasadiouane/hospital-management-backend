@@ -15,10 +15,8 @@ import com.hospital.hospital_management_backend.service.DiplomaService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Service implementation for managing Diplomas.
@@ -43,96 +41,84 @@ public class DiplomaServiceImpl implements DiplomaService {
 
     @Override
     @Transactional
-    public DiplomaDtoResponse createDiploma(Long employeeId, DiplomaDtoRequest diplomaDto) {
-        Diploma diploma = diplomaMapper.diplomaDtoRequestToDiploma(diplomaDto);
+    public DiplomaDtoResponse createDiploma(Long employeeId, DiplomaDtoRequest dto) {
+        dto.isStartBeforeEnd();
+        Employee employee = getEmployee(employeeId);
 
-        Employee employee = employeeRepository.findById(employeeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", employeeId.toString()));
-
+        Diploma diploma = diplomaMapper.toEntity(dto);
         diploma.setEmployee(employee);
 
-        Diploma savedDiploma = diplomaRepository.save(diploma);
-
-        return diplomaMapper.diplomaToDiplomaDtoResponse(savedDiploma);
+        return diplomaMapper.toDto(diplomaRepository.save(diploma));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public DiplomaDtoResponse getDiplomaById(Long employeeId, Long diplomaId) {
         Diploma diploma = checkDiplomaByEmployee(employeeId, diplomaId);
-        return diplomaMapper.diplomaToDiplomaDtoResponse(diploma);
+        return diplomaMapper.toDto(diploma);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<DiplomaDtoResponse> getAllDiploma() {
-        return diplomaRepository.findAll().stream()
-                .map(diplomaMapper::diplomaToDiplomaDtoResponse)
-                .collect(Collectors.toList());
+        return diplomaMapper.toDtoList(diplomaRepository.findAll());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<DiplomaDtoResponse> getEmployeeDiplomas(Long employeeId) {
-        Employee employee = employeeRepository.findById(employeeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", employeeId.toString()));
-
-        return employee.getDiplomas().stream()
-                .map(diplomaMapper::diplomaToDiplomaDtoResponse)
-                .collect(Collectors.toList());
+        getEmployee(employeeId); // validate employee exists
+        return diplomaMapper.toDtoList(diplomaRepository.findByEmployeeId(employeeId));
     }
 
     @Override
     @Transactional
-    public DiplomaDtoResponse updateDiploma(Long employeeId, Long diplomaId, DiplomaDtoRequest diplomaDto) {
+    public DiplomaDtoResponse updateDiploma(Long employeeId, Long diplomaId, DiplomaDtoRequest dto) {
+        dto.isStartBeforeEnd();
         Diploma diploma = checkDiplomaByEmployee(employeeId, diplomaId);
 
-        if (StringUtils.hasText(diplomaDto.title())) {
-            diploma.setTitle(diplomaDto.title());
-        }
-        if (diplomaDto.startDate() != null) {
-            diploma.setStartDate(diplomaDto.startDate());
-        }
-        if (diplomaDto.endDate() != null) {
-            diploma.setEndDate(diplomaDto.endDate());
-        }
+        diplomaMapper.updateDiplomaFromDto(dto, diploma);
 
-        Diploma updatedDiploma = diplomaRepository.save(diploma);
-
-        return diplomaMapper.diplomaToDiplomaDtoResponse(updatedDiploma);
+        return diplomaMapper.toDto(diplomaRepository.save(diploma));
     }
 
     @Override
     @Transactional
     public DiplomaDtoResponse addDocumentToDiploma(Long employeeId, Long diplomaId, Long documentId) {
-        checkDiplomaByEmployee(employeeId, diplomaId);
-
-        Diploma diploma = diplomaRepository.findById(diplomaId)
-                .orElseThrow(() -> new ResourceNotFoundException("Diploma", "id", diplomaId.toString()));
+        Diploma diploma = checkDiplomaByEmployee(employeeId, diplomaId);
 
         File document = fileRepository.findById(documentId)
                 .orElseThrow(() -> new ResourceNotFoundException("File", "id", documentId.toString()));
 
         diploma.setDocument(document);
 
-        Diploma updatedDiploma = diplomaRepository.save(diploma);
-
-        return diplomaMapper.diplomaToDiplomaDtoResponse(updatedDiploma);
+        return diplomaMapper.toDto(diplomaRepository.save(diploma));
     }
 
     @Override
+    @Transactional
     public void deleteDiploma(Long employeeId, Long diplomaId) {
         Diploma diploma = checkDiplomaByEmployee(employeeId, diplomaId);
         diplomaRepository.delete(diploma);
     }
 
-    private Diploma checkDiplomaByEmployee(Long employeeId, Long diplomaId) {
-        Employee employee = employeeRepository.findById(employeeId)
+    // ─── Helpers ────────────────────────────────────────────────────────────────
+
+    private Employee getEmployee(Long employeeId) {
+        return employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", employeeId.toString()));
+    }
+
+    private Diploma checkDiplomaByEmployee(Long employeeId, Long diplomaId) {
+        getEmployee(employeeId); // validate employee exists first
 
         Diploma diploma = diplomaRepository.findById(diplomaId)
                 .orElseThrow(() -> new ResourceNotFoundException("Diploma", "id", diplomaId.toString()));
 
-        if (!diploma.getEmployee().getId().equals(employee.getId())) {
+        if (!diploma.getEmployee().getId().equals(employeeId)) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Diploma does not belong to employee");
         }
+
         return diploma;
     }
 }

@@ -31,11 +31,10 @@ public record DiplomaDtoRequest(
      * Throws AppException if the condition is violated.
      */
     @JsonIgnore
-    public boolean isStartBeforeEnd() {
+    public void isStartBeforeEnd() {
         boolean isValid = startDate.isBefore(endDate);
         if (!isValid) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Start date must be before end date");
         }
-        return true;
     }
 }
