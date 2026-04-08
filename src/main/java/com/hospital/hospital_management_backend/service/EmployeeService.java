@@ -14,8 +14,13 @@ public interface EmployeeService {
     EmployeeDtoResponse getEmployeeByCin(String cin);
     EmployeeDtoResponse getEmployeeByRN(String registrationNumber);
     List<EmployeeDtoResponse> getAllEmployees();
-    PageDtoResponse getAllEmployees(Integer pageNumber, Integer pageSize, String sortField, String sortDirection);
     List<FileDtoResponse> getDocumentsOfEmployee(Long employeeId);
+
+    PageDtoResponse getEmployeesPaginated(Integer pageNumber,
+                                          Integer pageSize,
+                                          String sortField,
+                                          String sortDirection);
+
     PageDtoResponse getEmployeesByService(Long serviceId, Integer pageNumber, Integer pageSize, String sortField, String sortDirection);
     EmployeeDtoResponse updateEmployee(EmployeeDtoRequest employeeDto, Long employeeId);
     EmployeeDtoResponse addDocumentToEmployee(Long employeeId, Long documentId);

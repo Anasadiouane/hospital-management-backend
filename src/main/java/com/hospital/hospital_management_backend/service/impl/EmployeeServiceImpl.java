@@ -11,6 +11,7 @@ import com.hospital.hospital_management_backend.entity.HospitalService;
 import com.hospital.hospital_management_backend.exception.AppException;
 import com.hospital.hospital_management_backend.exception.ResourceNotFoundException;
 import com.hospital.hospital_management_backend.mapper.EmployeeMapper;
+import com.hospital.hospital_management_backend.mapper.FileMapper;
 import com.hospital.hospital_management_backend.repository.EmployeeRepository;
 import com.hospital.hospital_management_backend.repository.FileRepository;
 import com.hospital.hospital_management_backend.repository.ServiceRepository;
@@ -21,90 +22,98 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.*;
 
 @Service
 public class EmployeeServiceImpl implements EmployeeService {
+
     private final EmployeeRepository employeeRepository;
     private final ServiceRepository serviceRepository;
     private final EmployeeMapper employeeMapper;
     private final FileRepository fileRepository;
+    private final FileMapper fileMapper;
 
-    public EmployeeServiceImpl(EmployeeRepository employeeRepository, ServiceRepository serviceRepository, EmployeeMapper employeeMapper, FileRepository fileRepository) {
+    public EmployeeServiceImpl(EmployeeRepository employeeRepository,
+                               ServiceRepository serviceRepository,
+                               EmployeeMapper employeeMapper,
+                               FileRepository fileRepository,
+                               FileMapper fileMapper) {
         this.employeeRepository = employeeRepository;
         this.serviceRepository = serviceRepository;
         this.employeeMapper = employeeMapper;
         this.fileRepository = fileRepository;
+        this.fileMapper = fileMapper;
     }
 
+    // =========================
+    // CREATE
+    // =========================
     @Override
     @Transactional
-    public EmployeeDtoResponse createEmployee(EmployeeDtoRequest employeeDto) {
-        // DTO → Entity
-        Employee employee = employeeMapper.employeeDtoRequestToEmployee(employeeDto);
+    public EmployeeDtoResponse createEmployee(EmployeeDtoRequest dto) {
+        Employee employee = employeeMapper.toEntity(dto);
 
-        // get service from db
-        HospitalService hospitalService = serviceRepository.findByName(employeeDto.service().name())
-                .orElseThrow(() -> new ResourceNotFoundException("Service", "name", employeeDto.service().name()));
+        HospitalService service = getServiceByName(dto.service().name());
+        employee.setHospitalService(service);
 
-        // add service to employee
-        employee.setHospitalService(hospitalService);
-
-        // save in db
-        Employee savedEmployee = employeeRepository.save(employee);
-
-        // Entity → DTO
-        return employeeMapper.employeeToEmployeeDtoResponse(savedEmployee);
+        return employeeMapper.toDto(employeeRepository.save(employee));
     }
 
-
+    // =========================
+    // READ
+    // =========================
     @Override
-    public EmployeeDtoResponse getEmployeeById(Long employeeId) {
-        Employee employee = employeeRepository.findById(employeeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", employeeId.toString()));
-        return employeeMapper.employeeToEmployeeDtoResponse(employee);
+    @Transactional(readOnly = true)
+    public EmployeeDtoResponse getEmployeeById(Long id) {
+        return employeeMapper.toDto(findEmployee(id));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public EmployeeDtoResponse getEmployeeByCin(String cin) {
-        Employee employee = employeeRepository.findByCin(cin)
-                .orElseThrow(() -> new ResourceNotFoundException("Employee", "cin", cin));
-        return employeeMapper.employeeToEmployeeDtoResponse(employee);
+        return employeeMapper.toDto(
+                employeeRepository.findByCin(cin)
+                        .orElseThrow(() -> new ResourceNotFoundException("Employee", "cin", cin))
+        );
     }
 
     @Override
-    public EmployeeDtoResponse getEmployeeByRN(String registrationNumber) {
-        Employee employee = employeeRepository.findByRegistrationNumber(registrationNumber)
-                .orElseThrow(() -> new ResourceNotFoundException("Employee", "registration number", registrationNumber));
-        return employeeMapper.employeeToEmployeeDtoResponse(employee);
+    @Transactional(readOnly = true)
+    public EmployeeDtoResponse getEmployeeByRN(String rn) {
+        return employeeMapper.toDto(
+                employeeRepository.findByRegistrationNumber(rn)
+                        .orElseThrow(() -> new ResourceNotFoundException("Employee", "registrationNumber", rn))
+        );
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<EmployeeDtoResponse> getAllEmployees() {
-        List<Employee> employees = employeeRepository.findAll();
-        return employees.stream()
-                .map(employeeMapper::employeeToEmployeeDtoResponse)
-                .collect(Collectors.toList());
+        return employeeRepository.findAll()
+                .stream()
+                .map(employeeMapper::toDto)
+                .toList();
     }
 
+    @Transactional(readOnly = true)
     @Override
-    public PageDtoResponse getAllEmployees(Integer pageNumber, Integer pageSize, String sortField, String sortDirection) {
-        PageRequest pageRequest = SortUtil.buildPageRequest(pageNumber, pageSize, sortField, sortDirection);
+    public PageDtoResponse getEmployeesPaginated(Integer pageNumber,
+                                                 Integer pageSize,
+                                                 String sortField,
+                                                 String sortDirection) {
+        PageRequest pageRequest =
+                SortUtil.buildPageRequest(pageNumber, pageSize, sortField, sortDirection);
 
         Page<Employee> employeePage = employeeRepository.findAll(pageRequest);
 
-        List<EmployeeDtoResponse> employeeDtoResponseList = employeePage.getContent().stream()
-                .map(employeeMapper::employeeToEmployeeDtoResponse)
-                .collect(Collectors.toList());
+        List<EmployeeDtoResponse> list = employeePage.getContent()
+                .stream()
+                .map(employeeMapper::toDto)
+                .toList();
 
         return SortUtil.generatePageDtoResponse(
-                employeeDtoResponseList,
+                list,
                 employeePage.getNumber(),
                 employeePage.getSize(),
                 employeePage.getTotalElements(),
@@ -114,38 +123,28 @@ public class EmployeeServiceImpl implements EmployeeService {
     }
 
     @Override
-    public List<FileDtoResponse> getDocumentsOfEmployee(Long employeeId) {
-        // Get employee from database
-        Employee employee = employeeRepository.findById(employeeId).orElseThrow(
-                () -> new ResourceNotFoundException("Employee", "id", employeeId.toString())
-        );
-
-        Set<File> documents = employee.getDocuments();
-
-        return documents.stream()
-                .map(document -> new FileDtoResponse(
-                        document.getId(),
-                        document.getName(),
-                        document.getType(),
-                        document.getData().length))
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    public PageDtoResponse getEmployeesByService(Long serviceId, Integer pageNumber, Integer pageSize, String sortField, String sortDirection) {
+    @Transactional(readOnly = true)
+    public PageDtoResponse getEmployeesByService(Long serviceId,
+                                                 Integer pageNumber,
+                                                 Integer pageSize,
+                                                 String sortField,
+                                                 String sortDirection) {
         HospitalService hospitalService = serviceRepository.findById(serviceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Service", "id", serviceId.toString()));
 
-        PageRequest pageRequest = SortUtil.buildPageRequest(pageNumber, pageSize, sortField, sortDirection);
+        PageRequest pageRequest =
+                SortUtil.buildPageRequest(pageNumber, pageSize, sortField, sortDirection);
 
-        Page<Employee> employeePage = employeeRepository.findAllByHospitalServiceId(hospitalService.getId(), pageRequest);
+        Page<Employee> employeePage =
+                employeeRepository.findAllByHospitalServiceId(hospitalService.getId(), pageRequest);
 
-        List<EmployeeDtoResponse> employeeDtoResponseList = employeePage.getContent().stream()
-                .map(employeeMapper::employeeToEmployeeDtoResponse)
-                .collect(Collectors.toList());
+        List<EmployeeDtoResponse> list = employeePage.getContent()
+                .stream()
+                .map(employeeMapper::toDto)
+                .toList();
 
         return SortUtil.generatePageDtoResponse(
-                employeeDtoResponseList,
+                list,
                 employeePage.getNumber(),
                 employeePage.getSize(),
                 employeePage.getTotalElements(),
@@ -153,47 +152,39 @@ public class EmployeeServiceImpl implements EmployeeService {
                 employeePage.isLast()
         );
     }
+
+    // =========================
+    // UPDATE
+    // =========================
     @Override
     @Transactional
-    public EmployeeDtoResponse updateEmployee(EmployeeDtoRequest employeeDto, Long employeeId) {
-        Employee employee = employeeRepository.findById(employeeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", employeeId.toString()));
+    public EmployeeDtoResponse updateEmployee(EmployeeDtoRequest dto, Long id) {
+        Employee employee = findEmployee(id);
 
-        if (StringUtils.hasText(employeeDto.firstName())) {
-            employee.setFirstName(employeeDto.firstName());
-        }
-        if (StringUtils.hasText(employeeDto.lastName())) {
-            employee.setLastName(employeeDto.lastName());
-        }
-        if (StringUtils.hasText(employeeDto.cin())) {
-            employee.setCin(employeeDto.cin());
-        }
-        if (StringUtils.hasText(employeeDto.registrationNumber())) {
-            employee.setRegistrationNumber(employeeDto.registrationNumber());
-        }
-        if (employeeDto.recruitmentDate() != null) {
-            employee.setRecruitmentDate(employeeDto.recruitmentDate());
-        }
-        if (employeeDto.service() != null && StringUtils.hasText(employeeDto.service().name())) {
-            HospitalService hospitalService = serviceRepository.findByName(employeeDto.service().name())
-                    .orElseThrow(() -> new ResourceNotFoundException("Service", "name", employeeDto.service().name()));
-            employee.setHospitalService(hospitalService);
+        employeeMapper.updateEmployeeFromDto(dto, employee);
+
+        if (dto.service() != null && dto.service().name() != null) {
+            employee.setHospitalService(getServiceByName(dto.service().name()));
         }
 
-        Employee updatedEmployee = employeeRepository.save(employee);
-
-        return employeeMapper.employeeToEmployeeDtoResponse(updatedEmployee);
+        return employeeMapper.toDto(employeeRepository.save(employee));
     }
 
+    // =========================
+    // DOCUMENTS
+    // =========================
+    @Override
+    @Transactional(readOnly = true)
+    public List<FileDtoResponse> getDocumentsOfEmployee(Long employeeId) {
+        Employee employee = findEmployee(employeeId);
+        return fileMapper.toDtoList(new ArrayList<>(employee.getDocuments()));
+    }
 
     @Override
     @Transactional
     public EmployeeDtoResponse addDocumentToEmployee(Long employeeId, Long documentId) {
-        Employee employee = employeeRepository.findById(employeeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", employeeId.toString()));
-
-        File document = fileRepository.findById(documentId)
-                .orElseThrow(() -> new ResourceNotFoundException("File", "id", documentId.toString()));
+        Employee employee = findEmployee(employeeId);
+        File document = findFile(documentId);
 
         if (employee.getDocuments() == null) {
             employee.setDocuments(new HashSet<>());
@@ -201,79 +192,68 @@ public class EmployeeServiceImpl implements EmployeeService {
 
         employee.getDocuments().add(document);
 
-        Employee updatedEmployee = employeeRepository.save(employee);
-
-        return employeeMapper.employeeToEmployeeDtoResponse(updatedEmployee);
+        return employeeMapper.toDto(employeeRepository.save(employee));
     }
 
-
     @Override
+    @Transactional
     public void deleteDocumentOfEmployee(Long employeeId, Long documentId) {
-        Employee employee = employeeRepository.findById(employeeId).orElseThrow(
-                () -> new ResourceNotFoundException("Employee", "id", employeeId.toString())
-        );
+        Employee employee = findEmployee(employeeId);
+        File document = findFile(documentId);
 
-        File document = fileRepository.findById(documentId).orElseThrow(
-                () -> new ResourceNotFoundException("File", "id", documentId.toString())
-        );
+        checkIfDocumentBelongs(employee, documentId);
 
-        // check if document of employee
-        checkIfDocumentOfEmployee(employee, documentId);
+        employee.getDocuments().removeIf(f -> f.getId().equals(documentId));
 
-        // remove document from employee documents
-        Set<File> documents = employee.getDocuments();
-
-        Iterator<File> iterator = documents.iterator();
-        while(iterator.hasNext()) {
-            File file = iterator.next();
-            if(file.getId().equals(documentId)) {
-                iterator.remove();
-                break;
-            }
-        }
-
-        employee.setDocuments(documents);
-
-        // save employee update
         employeeRepository.save(employee);
-
-        // remove document from database
         fileRepository.delete(document);
     }
 
-    private void checkIfDocumentOfEmployee(Employee employee, Long documentId) {
-        // get list of document of employee
-        Set<File> documents = employee.getDocuments();
-        for(File file : documents) {
-            if(file.getId().equals(documentId)) {
-                return;
-            }
+    // =========================
+    // SERVICE ASSIGNMENT
+    // =========================
+    @Override
+    @Transactional
+    public EmployeeDtoResponse addServiceToEmployee(Long employeeId, ServiceDtoRequest dto) {
+        Employee employee = findEmployee(employeeId);
+        employee.setHospitalService(getServiceByName(dto.name()));
+        return employeeMapper.toDto(employeeRepository.save(employee));
+    }
+
+    // =========================
+    // DELETE
+    // =========================
+    @Override
+    @Transactional
+    public void deleteEmployee(Long id) {
+        employeeRepository.delete(findEmployee(id));
+    }
+
+    // =========================
+    // HELPERS
+    // =========================
+    private Employee findEmployee(Long id) {
+        return employeeRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", id.toString()));
+    }
+
+    private File findFile(Long id) {
+        return fileRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("File", "id", id.toString()));
+    }
+
+    private HospitalService getServiceByName(String name) {
+        return serviceRepository.findByName(name)
+                .orElseThrow(() -> new ResourceNotFoundException("Service", "name", name));
+    }
+
+    private void checkIfDocumentBelongs(Employee employee, Long docId) {
+        boolean exists = employee.getDocuments()
+                .stream()
+                .anyMatch(d -> d.getId().equals(docId));
+
+        if (!exists) {
+            throw new AppException(HttpStatus.BAD_REQUEST, "Document does not belong to employee");
         }
-        throw new AppException(HttpStatus.BAD_REQUEST, "Document does not belong to employee");
-    }
-
-    @Override
-    @Transactional
-    public EmployeeDtoResponse addServiceToEmployee(Long employeeId, ServiceDtoRequest serviceDtoRequest) {
-        Employee employee = employeeRepository.findById(employeeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", employeeId.toString()));
-
-        HospitalService hospitalService = serviceRepository.findByName(serviceDtoRequest.name())
-                .orElseThrow(() -> new ResourceNotFoundException("Service", "name", serviceDtoRequest.name()));
-
-        employee.setHospitalService(hospitalService);
-        Employee updatedEmployee = employeeRepository.save(employee);
-
-        return employeeMapper.employeeToEmployeeDtoResponse(updatedEmployee);
-    }
-
-
-    @Override
-    @Transactional
-    public void deleteEmployee(Long employeeId) {
-        Employee employee = employeeRepository.findById(employeeId).orElseThrow(
-                () -> new ResourceNotFoundException("Employee", "id", employeeId.toString())
-        );
-        employeeRepository.delete(employee);
     }
 }
