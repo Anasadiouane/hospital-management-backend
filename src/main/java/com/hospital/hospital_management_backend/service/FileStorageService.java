@@ -8,6 +8,6 @@ import java.util.List;
 
 public interface FileStorageService {
     FileDtoResponse uploadFile(MultipartFile file);
-    File downloadFile(Long fileId);
+    FileDtoResponse downloadFile(Long fileId);
     List<FileDtoResponse> getAllFiles();
 }

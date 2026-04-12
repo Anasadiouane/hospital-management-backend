@@ -29,4 +29,7 @@ public class File {
     @Basic(fetch = FetchType.LAZY)
     @Column(name = "data", nullable = false)
     private byte[] data;
+
+    @Column(name = "size", nullable = false)
+    private long size;
 }

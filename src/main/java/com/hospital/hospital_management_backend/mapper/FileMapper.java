@@ -14,7 +14,6 @@ import java.util.List;
 public interface FileMapper {
 
     // Entity → Response DTO
-    @Mapping(target = "size", expression = "java(file.getData() != null ? file.getData().length : 0)")
     FileDtoResponse toDto(File file);
 
     List<FileDtoResponse> toDtoList(List<File> files);
