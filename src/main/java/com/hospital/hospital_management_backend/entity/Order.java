@@ -28,4 +28,6 @@ public abstract class Order {
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.REMOVE, fetch = FetchType.LAZY)
     private Set<DeliveryNote> deliveryNotes;
+
+
 }
