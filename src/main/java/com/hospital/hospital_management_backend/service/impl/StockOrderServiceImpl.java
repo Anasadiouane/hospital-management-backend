@@ -14,12 +14,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Service implementation for managing stock orders.
+ * A stock order ADDS quantity to the stock of each product.
  */
 @Service
 public class StockOrderServiceImpl implements StockOrderService {
@@ -45,45 +48,34 @@ public class StockOrderServiceImpl implements StockOrderService {
         this.stockOrderMapper = stockOrderMapper;
     }
 
+    // =========================
+    // CREATE
+    // =========================
     @Override
     @Transactional
-    public StockOrderDtoResponse createStockOrder(StockOrderDtoRequest stockOrderDtoRequest) {
-        StockOrder stockOrder = stockOrderMapper.toEntity(stockOrderDtoRequest);
+    public StockOrderDtoResponse createStockOrder(StockOrderDtoRequest request) {
+        Supplier supplier = findSupplier(request.supplierId());
 
-        Supplier supplier = supplierRepository.findById(stockOrderDtoRequest.supplierId())
-                .orElseThrow(() -> new ResourceNotFoundException("Supplier", "id", stockOrderDtoRequest.supplierId().toString()));
+        StockOrder stockOrder = stockOrderMapper.toEntity(request);
         stockOrder.setSupplier(supplier);
 
-        StockOrder savedStockOrder = stockOrderRepository.save(stockOrder);
+        StockOrder saved = stockOrderRepository.save(stockOrder);
+        addDeliveryNotes(request.deliveryNotes(), saved);
 
-        Set<DeliveryNoteDto> deliveryNotes = stockOrderDtoRequest.deliveryNotes();
-        deliveryNotes.forEach(dn -> {
-            ProductStockWrapper wrapper = getValidatedProductAndStock(dn.productId());
-            Product product = wrapper.product();
-            Stock stock = wrapper.stock();
-
-            stock.setQuantity(stock.getQuantity() + dn.quantity());
-            stockRepository.save(stock);
-
-            DeliveryNote deliveryNote = new DeliveryNote();
-            deliveryNote.setProduct(product);
-            deliveryNote.setQuantity(dn.quantity());
-            deliveryNote.setOrder(savedStockOrder);
-            deliveryNoteRepository.save(deliveryNote);
-        });
-
-        StockOrder order = stockOrderRepository.save(savedStockOrder);
-        return stockOrderMapper.toDto(order);
+        return stockOrderMapper.toDto(saved);
     }
 
+    // =========================
+    // READ
+    // =========================
     @Override
+    @Transactional(readOnly = true)
     public StockOrderDtoResponse getStockOrder(Long code) {
-        StockOrder stockOrder = stockOrderRepository.findById(code)
-                .orElseThrow(() -> new ResourceNotFoundException("Stock Order", "code", code.toString()));
-        return stockOrderMapper.toDto(stockOrder);
+        return stockOrderMapper.toDto(findStockOrder(code));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<StockOrderDtoResponse> getAllStockOrder() {
         return stockOrderRepository.findAll().stream()
                 .map(stockOrderMapper::toDto)
@@ -91,79 +83,130 @@ public class StockOrderServiceImpl implements StockOrderService {
     }
 
     @Override
-    public List<StockOrderDtoResponse> getStockOrdersOfProduct(Long id) {
-        productRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Product", "id", id.toString()));
+    @Transactional(readOnly = true)
+    public List<StockOrderDtoResponse> getStockOrdersOfProduct(Long productId) {
+        findProduct(productId);
 
-        return stockOrderRepository.findAllByProduct(id).stream()
-                .peek(so -> so.setDeliveryNotes(so.getDeliveryNotes().stream()
-                        .filter(dn -> dn.getProduct().getId().equals(id))
-                        .collect(Collectors.toSet())))
+        // filter at DTO level: never modify managed entities while reading
+        return stockOrderRepository.findAllByProduct(productId).stream()
                 .map(stockOrderMapper::toDto)
+                .map(dto -> {
+                    Set<StockOrderDtoResponse.DeliveryNoteDto> filtered = dto.deliveryNotes().stream()
+                            .filter(dn -> dn.product().id().equals(productId))
+                            .collect(Collectors.toSet());
+                    return new StockOrderDtoResponse(
+                            dto.code(),
+                            dto.orderDate(),
+                            filtered,
+                            dto.supplier(),
+                            dto.deliveryLocation()
+                    );
+                })
                 .collect(Collectors.toList());
     }
 
+    // =========================
+    // UPDATE
+    // =========================
     @Override
     @Transactional
-    public StockOrderDtoResponse updateStockOrder(Long code, StockOrderDtoRequest stockOrderDtoRequest) {
-        StockOrder stockOrder = stockOrderRepository.findById(code)
-                .orElseThrow(() -> new ResourceNotFoundException("Stock order", "code", code.toString()));
+    public StockOrderDtoResponse updateStockOrder(Long code, StockOrderDtoRequest request) {
+        StockOrder stockOrder = findStockOrder(code);
 
-        if (StringUtils.hasText(stockOrderDtoRequest.deliveryLocation())) {
-            stockOrder.setDeliveryLocation(stockOrderDtoRequest.deliveryLocation());
+        if (StringUtils.hasText(request.deliveryLocation())) {
+            stockOrder.setDeliveryLocation(request.deliveryLocation());
+        }
+        stockOrder.setSupplier(findSupplier(request.supplierId()));
+
+        // 1) undo the effect of the old delivery notes on the stock
+        reverseStock(stockOrder.getDeliveryNotes());
+
+        // 2) delete the old delivery notes
+        if (stockOrder.getDeliveryNotes() != null) {
+            deliveryNoteRepository.deleteAll(new ArrayList<>(stockOrder.getDeliveryNotes()));
+            stockOrder.getDeliveryNotes().clear();
         }
 
-        Supplier supplier = supplierRepository.findById(stockOrderDtoRequest.supplierId())
-                .orElseThrow(() -> new ResourceNotFoundException("Supplier", "id", stockOrderDtoRequest.supplierId().toString()));
-        stockOrder.setSupplier(supplier);
+        // 3) apply the new delivery notes
+        addDeliveryNotes(request.deliveryNotes(), stockOrder);
 
-        Set<DeliveryNoteDto> deliveryNotes = stockOrderDtoRequest.deliveryNotes();
-        deliveryNotes.forEach(dn -> {
-            ProductStockWrapper wrapper = getValidatedProductAndStock(dn.productId());
-            Product product = wrapper.product();
-            Stock stock = wrapper.stock();
-
-            stock.setQuantity(dn.quantity());
-            stockRepository.save(stock);
-
-            DeliveryNote deliveryNote = new DeliveryNote();
-            deliveryNote.setProduct(product);
-            deliveryNote.setQuantity(dn.quantity());
-            deliveryNote.setOrder(stockOrder);
-            deliveryNoteRepository.save(deliveryNote);
-        });
-
-        StockOrder order = stockOrderRepository.save(stockOrder);
-        return stockOrderMapper.toDto(order);
+        return stockOrderMapper.toDto(stockOrderRepository.save(stockOrder));
     }
 
+    // =========================
+    // DELETE
+    // =========================
     @Override
+    @Transactional
     public void deleteStockOrder(Long code) {
-        StockOrder stockOrder = stockOrderRepository.findById(code)
-                .orElseThrow(() -> new ResourceNotFoundException("Stock Order", "code", code.toString()));
+        StockOrder stockOrder = findStockOrder(code);
+        reverseStock(stockOrder.getDeliveryNotes());
         stockOrderRepository.delete(stockOrder);
     }
 
-    /**
-     * Validates product existence and ensures stock is available.
-     */
-    private ProductStockWrapper getValidatedProductAndStock(Long productId) {
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new ResourceNotFoundException("Product", "id", productId.toString()));
+    // =========================
+    // HELPERS
+    // =========================
+    private void addDeliveryNotes(Set<DeliveryNoteDto> notes, StockOrder order) {
+        if (order.getDeliveryNotes() == null) {
+            order.setDeliveryNotes(new HashSet<>());
+        }
 
+        for (DeliveryNoteDto dn : notes) {
+            Product product = findProduct(dn.productId());
+            Stock stock = requireStock(product);
+
+            stock.setQuantity(stock.getQuantity() + dn.quantity());
+            stockRepository.save(stock);
+
+            DeliveryNote note = new DeliveryNote();
+            note.setProduct(product);
+            note.setQuantity(dn.quantity());
+            note.setOrder(order);
+            order.getDeliveryNotes().add(deliveryNoteRepository.save(note));
+        }
+    }
+
+    /** Removes from the stock what this order had added. */
+    private void reverseStock(Set<DeliveryNote> notes) {
+        if (notes == null || notes.isEmpty()) return;
+
+        for (DeliveryNote dn : notes) {
+            Stock stock = dn.getProduct().getStock();
+            if (stock == null) continue;
+
+            long newQuantity = stock.getQuantity() - dn.getQuantity();
+            if (newQuantity < 0) {
+                throw new AppException(HttpStatus.BAD_REQUEST,
+                        String.format("Cannot change this order: the stock of product %d was already used",
+                                dn.getProduct().getId()));
+            }
+            stock.setQuantity(newQuantity);
+            stockRepository.save(stock);
+        }
+    }
+
+    private StockOrder findStockOrder(Long code) {
+        return stockOrderRepository.findById(code)
+                .orElseThrow(() -> new ResourceNotFoundException("Stock order", "code", code.toString()));
+    }
+
+    private Supplier findSupplier(Long id) {
+        return supplierRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Supplier", "id", id.toString()));
+    }
+
+    private Product findProduct(Long id) {
+        return productRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Product", "id", id.toString()));
+    }
+
+    private Stock requireStock(Product product) {
         Stock stock = product.getStock();
         if (stock == null) {
             throw new AppException(HttpStatus.BAD_REQUEST,
                     String.format("Product with id %d doesn't have stock.", product.getId()));
         }
-
-        return new ProductStockWrapper(product, stock);
-    }
-
-    /**
-         * Simple wrapper to return both Product and Stock together.
-         */
-        private record ProductStockWrapper(Product product, Stock stock) {
-
+        return stock;
     }
 }

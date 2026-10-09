@@ -1,5 +1,6 @@
 package com.hospital.hospital_management_backend.service.impl;
 
+import com.hospital.hospital_management_backend.auth.AuthenticationFacade;
 import com.hospital.hospital_management_backend.dto.request.*;
 import com.hospital.hospital_management_backend.dto.response.UserDtoResponse;
 import com.hospital.hospital_management_backend.entity.File;
@@ -12,7 +13,6 @@ import com.hospital.hospital_management_backend.mapper.UserMapper;
 import com.hospital.hospital_management_backend.repository.FileRepository;
 import com.hospital.hospital_management_backend.repository.RoleRepository;
 import com.hospital.hospital_management_backend.repository.UserRepository;
-import com.hospital.hospital_management_backend.auth.AuthenticationFacade;
 import com.hospital.hospital_management_backend.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -22,11 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
-/**
- * Service implementation for managing users.
- */
 @Service
 public class UserServiceImpl implements UserService {
 
@@ -51,30 +47,35 @@ public class UserServiceImpl implements UserService {
         this.userMapper = userMapper;
     }
 
+    // =========================
+    // CREATE
+    // =========================
     @Override
     @Transactional
-    public UserDtoResponse createUser(UserDtoRequest userDtoRequest) {
-        if (userRepository.existsByCin(userDtoRequest.cin()) || userRepository.existsByEmail(userDtoRequest.email())) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "User already exists");
+    public UserDtoResponse createUser(UserDtoRequest dto) {
+        if (userRepository.existsByCin(dto.cin()) || userRepository.existsByEmail(dto.email())) {
+            throw new AppException(HttpStatus.CONFLICT, "User already exists");
         }
 
-        User user = userMapper.userDtoRequestToUser(userDtoRequest);
-        user.setPassword(passwordEncoder.encode(userDtoRequest.password()));
+        User user = userMapper.userDtoRequestToUser(dto);
+        user.setPassword(passwordEncoder.encode(dto.password()));
 
-        addRoleToUser(user, userDtoRequest.role().name());
+        addRoleToUser(user, dto.role().name());
 
-        User savedUser = userRepository.save(user);
-        return userMapper.userToUserDtoResponse(savedUser);
+        return userMapper.userToUserDtoResponse(userRepository.save(user));
     }
 
+    // =========================
+    // READ
+    // =========================
     @Override
+    @Transactional(readOnly = true)
     public UserDtoResponse getUserById(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId.toString()));
-        return userMapper.userToUserDtoResponse(user);
+        return userMapper.userToUserDtoResponse(findUser(userId));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public UserDtoResponse getUserByCin(String cin) {
         User user = userRepository.findByCin(cin)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "cin", cin));
@@ -82,6 +83,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public UserDtoResponse getUserByEmail(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "email", email));
@@ -89,78 +91,88 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<UserDtoResponse> getAllUsers() {
         return userRepository.findAll().stream()
                 .map(userMapper::userToUserDtoResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
+    // =========================
+    // UPDATE
+    // =========================
     @Override
-    public UserDtoResponse updateUser(UserUpdateDtoRequest userDtoRequest, Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId.toString()));
+    @Transactional
+    public UserDtoResponse updateUser(UserUpdateDtoRequest dto, Long userId) {
+        User user = findUser(userId);
 
-        if (StringUtils.hasText(userDtoRequest.firstName())) {
-            user.setFirstName(userDtoRequest.firstName());
+        if (StringUtils.hasText(dto.firstName())) {
+            user.setFirstName(dto.firstName());
         }
-        if (StringUtils.hasText(userDtoRequest.lastName())) {
-            user.setLastName(userDtoRequest.lastName());
+        if (StringUtils.hasText(dto.lastName())) {
+            user.setLastName(dto.lastName());
         }
-        if (StringUtils.hasText(userDtoRequest.cin())) {
-            user.setCin(userDtoRequest.cin());
+        if (StringUtils.hasText(dto.cin()) && !dto.cin().equals(user.getCin())) {
+            if (userRepository.existsByCin(dto.cin())) {
+                throw new AppException(HttpStatus.CONFLICT, "CIN already exists");
+            }
+            user.setCin(dto.cin());
         }
-        if (StringUtils.hasText(userDtoRequest.email())) {
-            user.setEmail(userDtoRequest.email());
+        if (StringUtils.hasText(dto.email()) && !dto.email().equals(user.getEmail())) {
+            if (userRepository.existsByEmail(dto.email())) {
+                throw new AppException(HttpStatus.CONFLICT, "Email already exists");
+            }
+            user.setEmail(dto.email());
         }
-        if (userDtoRequest.role() != null && StringUtils.hasText(userDtoRequest.role().name())) {
-            addRoleToUser(user, userDtoRequest.role().name());
+        if (dto.role() != null && StringUtils.hasText(dto.role().name())) {
+            addRoleToUser(user, dto.role().name());
         }
 
-        User updatedUser = userRepository.save(user);
-        return userMapper.userToUserDtoResponse(updatedUser);
+        return userMapper.userToUserDtoResponse(userRepository.save(user));
     }
 
+    /** Password reset by an ADMIN (no old password needed). */
     @Override
     @Transactional
     public UserDtoResponse updatePassword(ChangePasswordDto passwordDto, Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId.toString()));
+        User user = findUser(userId);
 
-        if (isAdmin())
-            throw new AppException(HttpStatus.UNAUTHORIZED, "Invalid credential");
+        if (isNotAdmin()) {
+            throw new AppException(HttpStatus.FORBIDDEN, "Only an admin can reset a password");
+        }
 
-        if (!passwordDto.newPassword().equals(passwordDto.confirmNewPassword()))
-            throw new AppException(HttpStatus.BAD_REQUEST, "Invalid input");
+        if (!passwordDto.newPassword().equals(passwordDto.confirmNewPassword())) {
+            throw new AppException(HttpStatus.BAD_REQUEST, "Passwords should be the same");
+        }
 
         user.setPassword(passwordEncoder.encode(passwordDto.newPassword()));
-        User updatedUser = userRepository.save(user);
-
-        return userMapper.userToUserDtoResponse(updatedUser);
+        return userMapper.userToUserDtoResponse(userRepository.save(user));
     }
 
+    /** Password change by the logged-in user. */
     @Override
     @Transactional
-    public String updatePassword(String cin, UpdateUserPasswordDto updateUserPasswordDto) {
+    public String updatePassword(String cin, UpdateUserPasswordDto dto) {
         User user = userRepository.findByCin(cin)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "cin", cin));
 
         if (!authenticationFacade.getAuthentication().getName().equals(user.getCin())) {
-            throw new AppException(HttpStatus.UNAUTHORIZED, "Invalid credential");
+            throw new AppException(HttpStatus.FORBIDDEN, "You can only change your own password");
         }
 
-        if (!passwordEncoder.matches(updateUserPasswordDto.oldPassword(), user.getPassword())) {
+        if (!passwordEncoder.matches(dto.oldPassword(), user.getPassword())) {
             throw new BadCredentialsException("Incorrect old password");
         }
 
-        if (updateUserPasswordDto.oldPassword().equals(updateUserPasswordDto.newPassword())) {
+        if (dto.oldPassword().equals(dto.newPassword())) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Password should not match the old one");
         }
 
-        if (!updateUserPasswordDto.newPassword().equals(updateUserPasswordDto.confirmNewPassword())) {
+        if (!dto.newPassword().equals(dto.confirmNewPassword())) {
             throw new AppException(HttpStatus.BAD_REQUEST, "Passwords should be the same");
         }
 
-        user.setPassword(passwordEncoder.encode(updateUserPasswordDto.newPassword()));
+        user.setPassword(passwordEncoder.encode(dto.newPassword()));
         userRepository.save(user);
 
         return "Password changed successfully";
@@ -169,12 +181,11 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public UserDtoResponse addImageToUser(Long userId, Long imageId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId.toString()));
+        User user = findUser(userId);
 
         String loggedUserCin = authenticationFacade.getAuthentication().getName();
         if (!user.getCin().equals(loggedUserCin)) {
-            throw new AppException(HttpStatus.UNAUTHORIZED, "Invalid credential");
+            throw new AppException(HttpStatus.FORBIDDEN, "You can only change your own image");
         }
 
         File image = fileRepository.findById(imageId)
@@ -182,29 +193,40 @@ public class UserServiceImpl implements UserService {
 
         user.setImage(image);
 
-        User updatedUser = userRepository.save(user);
-        return userMapper.userToUserDtoResponse(updatedUser);
+        return userMapper.userToUserDtoResponse(userRepository.save(user));
     }
 
+    // =========================
+    // DELETE
+    // =========================
     @Override
+    @Transactional
     public void deleteUser(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId.toString()));
-        userRepository.delete(user);
+        userRepository.delete(findUser(userId));
+    }
+
+    // =========================
+    // HELPERS
+    // =========================
+    private User findUser(Long id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", id.toString()));
     }
 
     private void addRoleToUser(User user, String roleName) {
         Role role = roleRepository.findByName(roleName)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", "name", roleName));
 
-        if (role.getName().equals(ROLES.ROLE_ADMIN.name()) && isAdmin()) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Don't have permission to create admin user");
+        // only an admin can assign the ADMIN role
+        if (role.getName().equals(ROLES.ROLE_ADMIN.name()) && isNotAdmin()) {
+            throw new AppException(HttpStatus.FORBIDDEN, "Don't have permission to create admin user");
         }
 
         user.setRole(role);
     }
 
-    private boolean isAdmin() {
+    /** true if the currently logged-in user is NOT an admin. */
+    private boolean isNotAdmin() {
         String cin = authenticationFacade.getAuthentication().getName();
         User user = userRepository.findByCin(cin)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "cin", cin));

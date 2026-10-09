@@ -15,9 +15,6 @@ import org.springframework.util.StringUtils;
 
 import java.util.List;
 
-/**
- * Service implementation for managing hospital services.
- */
 @Service
 public class IHospitalServicesImpl implements IHospitalServices {
 
@@ -30,21 +27,15 @@ public class IHospitalServicesImpl implements IHospitalServices {
         this.serviceMapper = serviceMapper;
     }
 
-    // =========================
-    // CREATE
-    // =========================
     @Override
     @Transactional
     public ServiceDtoResponse createService(ServiceDtoRequest dto) {
         if (serviceRepository.existsByName(dto.name())) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Service already exists");
+            throw new AppException(HttpStatus.CONFLICT, "Service already exists");
         }
         return serviceMapper.toDto(serviceRepository.save(serviceMapper.toEntity(dto)));
     }
 
-    // =========================
-    // READ
-    // =========================
     @Override
     @Transactional(readOnly = true)
     public ServiceDtoResponse getServiceById(Long serviceId) {
@@ -66,37 +57,28 @@ public class IHospitalServicesImpl implements IHospitalServices {
         return serviceMapper.toDtoList(serviceRepository.findAll());
     }
 
-    // =========================
-    // UPDATE
-    // =========================
     @Override
     @Transactional
     public ServiceDtoResponse updateService(ServiceDtoRequest dto, Long serviceId) {
         HospitalService hospitalService = findService(serviceId);
 
-        if (serviceRepository.existsByName(dto.name())) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Service name already exists");
-        }
-
-        if (StringUtils.hasText(dto.name())) {
+        // only check uniqueness when the name really changes
+        if (StringUtils.hasText(dto.name()) && !dto.name().equals(hospitalService.getName())) {
+            if (serviceRepository.existsByName(dto.name())) {
+                throw new AppException(HttpStatus.CONFLICT, "Service name already exists");
+            }
             hospitalService.setName(dto.name());
         }
 
         return serviceMapper.toDto(serviceRepository.save(hospitalService));
     }
 
-    // =========================
-    // DELETE
-    // =========================
     @Override
     @Transactional
     public void deleteService(Long serviceId) {
         serviceRepository.delete(findService(serviceId));
     }
 
-    // =========================
-    // HELPERS
-    // =========================
     private HospitalService findService(Long id) {
         return serviceRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Service", "id", id.toString()));

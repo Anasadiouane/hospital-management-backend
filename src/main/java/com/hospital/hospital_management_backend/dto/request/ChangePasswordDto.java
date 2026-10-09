@@ -4,14 +4,8 @@ import com.hospital.hospital_management_backend.validation.PasswordValid;
 import jakarta.validation.constraints.NotBlank;
 import java.io.Serializable;
 
-/**
- * DTO for changing a user's password.
- * Validates old password, new password, and confirmation.
- */
+/** Used for the admin password reset (no old password needed). */
 public record ChangePasswordDto(
-
-        @NotBlank(message = "Old password should not be blank.")
-        String oldPassword,
 
         @NotBlank(message = "New password should not be blank.")
         @PasswordValid

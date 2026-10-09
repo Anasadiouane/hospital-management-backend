@@ -1,13 +1,10 @@
 package com.hospital.hospital_management_backend.dto.request;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.io.Serializable;
 import java.time.LocalDate;
 
-/**
- * DTO for employee creation requests.
- * Validates personal and employment details.
- */
 public record EmployeeDtoRequest(
 
         @NotBlank(message = "First name should not be blank")
@@ -31,6 +28,7 @@ public record EmployeeDtoRequest(
         LocalDate recruitmentDate,
 
         @NotNull(message = "Service is required")
+        @Valid
         ServiceDtoRequest service
 
 ) implements Serializable {}

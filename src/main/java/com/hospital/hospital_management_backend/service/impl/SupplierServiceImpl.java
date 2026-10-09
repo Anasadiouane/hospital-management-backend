@@ -17,10 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 
-
-/**
- * Service implementation for managing suppliers.
- */
 @Service
 public class SupplierServiceImpl implements SupplierService {
 
@@ -36,24 +32,18 @@ public class SupplierServiceImpl implements SupplierService {
         this.stockOrderMapper = stockOrderMapper;
     }
 
-    // =========================
-    // CREATE
-    // =========================
     @Override
     @Transactional
     public SupplierDtoResponse createSupplier(SupplierDtoRequest dto) {
         if (supplierRepository.existsByPhone(dto.phone())) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Phone number already exists");
+            throw new AppException(HttpStatus.CONFLICT, "Phone number already exists");
         }
         if (supplierRepository.existsByEmail(dto.email())) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Email already exists");
+            throw new AppException(HttpStatus.CONFLICT, "Email already exists");
         }
         return supplierMapper.toDto(supplierRepository.save(supplierMapper.toEntity(dto)));
     }
 
-    // =========================
-    // READ
-    // =========================
     @Override
     @Transactional(readOnly = true)
     public SupplierDtoResponse getById(Long supplierId) {
@@ -70,44 +60,33 @@ public class SupplierServiceImpl implements SupplierService {
     @Transactional(readOnly = true)
     public List<StockOrderDtoResponse> getStockOrdersForSupplier(Long supplierId) {
         Supplier supplier = findSupplier(supplierId);
-        return stockOrderMapper.toDtoList(
-                new ArrayList<>(supplier.getStockOrders())
-        );
+        return stockOrderMapper.toDtoList(new ArrayList<>(supplier.getStockOrders()));
     }
 
-    // =========================
-    // UPDATE
-    // =========================
     @Override
     @Transactional
     public SupplierDtoResponse updateSupplier(Long supplierId, SupplierDtoRequest dto) {
         Supplier supplier = findSupplier(supplierId);
 
-        if (supplierRepository.existsByPhone(dto.phone())) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Phone number already exists");
+        // only check uniqueness when the value really changes
+        if (!dto.phone().equals(supplier.getPhone()) && supplierRepository.existsByPhone(dto.phone())) {
+            throw new AppException(HttpStatus.CONFLICT, "Phone number already exists");
         }
-        if (supplierRepository.existsByEmail(dto.email())) {
-            throw new AppException(HttpStatus.BAD_REQUEST, "Email already exists");
+        if (!dto.email().equals(supplier.getEmail()) && supplierRepository.existsByEmail(dto.email())) {
+            throw new AppException(HttpStatus.CONFLICT, "Email already exists");
         }
 
-        // ✅ use MapStruct PATCH instead of manual setters
         supplierMapper.updateFromDto(dto, supplier);
 
         return supplierMapper.toDto(supplierRepository.save(supplier));
     }
 
-    // =========================
-    // DELETE
-    // =========================
     @Override
     @Transactional
     public void deleteSupplier(Long supplierId) {
         supplierRepository.delete(findSupplier(supplierId));
     }
 
-    // =========================
-    // HELPERS
-    // =========================
     private Supplier findSupplier(Long id) {
         return supplierRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Supplier", "id", id.toString()));
